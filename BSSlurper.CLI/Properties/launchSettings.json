@@ -1,0 +1,14 @@
+{
+  "profiles": {
+    "BSSlurper.CLI": {
+      "commandName": "Project"
+    },
+    "Container (Dockerfile)": {
+      "commandName": "Docker"
+    },
+    "Show Help": {
+      "commandName": "Project",
+      "commandLineArgs": "--help"
+    }
+  }
+}
