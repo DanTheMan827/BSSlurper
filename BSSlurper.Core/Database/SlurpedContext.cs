@@ -399,7 +399,7 @@ namespace BSSlurper.Core.Database
             if (!entry.Versions.SequenceEqual(map.Versions))
             {
                 var newHashes = map.Versions.Select(v => v.Hash).ToArray();
-                var oldVersions = map.Versions.Where(v => !newHashes.Contains(v.Hash)).ToArray();
+                var oldVersions = entry.Versions.Where(v => !newHashes.Contains(v.Hash)).ToArray();
                 var versions = map.Versions.ToList();
 
                 entry.Versions.Clear();
