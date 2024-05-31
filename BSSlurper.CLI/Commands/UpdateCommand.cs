@@ -12,6 +12,7 @@ namespace BSSlurper.CLI.Commands
     internal class UpdateCommand : IDisposable
     {
         private readonly SlurpedContext db;
+        private readonly bool fullUpdate;
         private readonly string dataPath;
         private readonly string mapsPath;
         private readonly string avatarsPath;
@@ -27,6 +28,7 @@ namespace BSSlurper.CLI.Commands
         /// <param name="options">Options for the update command, containing paths and other settings.</param>
         public UpdateCommand(UpdateCommandOptions options)
         {
+            fullUpdate = options.FullUpdate;
             dataPath = options.DataPath != null ? Path.GetFullPath(options.DataPath.FullName) : Path.GetFullPath("data");
             mapsPath = Path.Combine(dataPath, "maps");
             avatarsPath = Path.Combine(dataPath, "avatars");
@@ -220,7 +222,7 @@ namespace BSSlurper.CLI.Commands
         /// </summary>
         async Task UpdateMapsAsync()
         {
-            await ApiClient.GetAllMapsBeforeAsync(ProcessMapAsync, GetOldestMapDate());
+            await ApiClient.GetAllMapsBeforeAsync(ProcessMapAsync, fullUpdate ? null : GetOldestMapDate());
 
             while (true)
             {
@@ -245,7 +247,7 @@ namespace BSSlurper.CLI.Commands
         /// </summary>
         async Task UpdatePlaylistsAsync()
         {
-            await ApiClient.GetAllPlaylistsBeforeAsync(ProcessPlaylistAsync, GetOldestPlaylistDate());
+            await ApiClient.GetAllPlaylistsBeforeAsync(ProcessPlaylistAsync, fullUpdate ? null : GetOldestPlaylistDate());
 
             while (true)
             {
