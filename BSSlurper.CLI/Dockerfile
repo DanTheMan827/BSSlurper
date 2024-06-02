@@ -21,4 +21,12 @@ RUN dotnet publish "./BSSlurper.CLI.csproj" -c $BUILD_CONFIGURATION -o /app/publ
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
-ENTRYPOINT ["dotnet", "BSSlurper.CLI.dll"]
+
+RUN echo '#!/bin/bash' > /app/entrypoint.sh && \
+	echo '[[ ! -z "$UMASK" ]] && umask "$UMASK"' >> /app/entrypoint.sh && \
+	echo 'echo "Running with umask `umask`"' >> /app/entrypoint.sh && \
+	echo 'id' >> /app/entrypoint.sh && \
+	echo 'exec dotnet BSSlurper.CLI.dll "$@"' >> /app/entrypoint.sh && \
+	chmod +rx /app/entrypoint.sh
+
+ENTRYPOINT ["/app/entrypoint.sh"]
