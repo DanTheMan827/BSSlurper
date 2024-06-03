@@ -9,13 +9,16 @@ namespace BSSlurper.Core.BeatSaver.API
         public const string PlaylistsEndpoint = "https://api.beatsaver.com/playlists/latest";
         public const string MapsEndpoint = "https://api.beatsaver.com/maps/latest";
         public const string ApiDateFormat = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
-        public delegate Task DataCallback<T>(T data, bool pageEnd);
-
+        public delegate Task DataCallback<T>(T data, bool pageEnd, CancellationToken cancellationToken = default);
 
         internal static async Task<T> GetJsonAsync<T>(string url, int retries = 3, CancellationToken cancellationToken = default)
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             for (int i = 0; i < retries; i++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 try
                 {
                     var client = new HttpClient();
@@ -53,6 +56,8 @@ namespace BSSlurper.Core.BeatSaver.API
             { "sort", "UPDATED" }
         };
 
+            cancellationToken.ThrowIfCancellationRequested();
+
             if (!string.IsNullOrEmpty(before))
             {
                 queryParams.Add("before", before);
@@ -82,10 +87,14 @@ namespace BSSlurper.Core.BeatSaver.API
         /// <returns>A list of items.</returns>
         private static async Task<List<T>> GetAllDatedDataAfterAsync<T>(string endpoint, string? after = null, CancellationToken cancellationToken = default) where T : IUpdatedAt
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var items = new List<T>();
 
-            await GetAllDatedDataAfterAsync<T>(endpoint, async (data, pageEnd) => await Task.Run(() =>
+            await GetAllDatedDataAfterAsync<T>(endpoint, async (data, pageEnd, cancellationToken) => await Task.Run(() =>
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 items.Add(data);
             }), after, cancellationToken);
 
@@ -101,6 +110,8 @@ namespace BSSlurper.Core.BeatSaver.API
         /// <returns></returns>
         private static async Task GetAllDatedDataAfterAsync<T>(string endpoint, DataCallback<T> callback, string? after = null, CancellationToken cancellationToken = default) where T : IUpdatedAt
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             DateTimeOffset? lastDate = null;
             DateTimeOffset? parsedAfter = after != null ? DateTime.Parse(after) : null;
 
@@ -117,10 +128,7 @@ namespace BSSlurper.Core.BeatSaver.API
 
                 foreach (var item in items)
                 {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        break;
-                    }
+                    cancellationToken.ThrowIfCancellationRequested();
 
                     if (after != null && item.doc.UpdatedAt <= parsedAfter)
                     {
@@ -142,12 +150,18 @@ namespace BSSlurper.Core.BeatSaver.API
         /// <returns>A list of items.</returns>
         private static async Task<List<T>> GetAllDatedDataBeforeAsync<T>(string endpoint, string? before = null, CancellationToken cancellationToken = default) where T : IUpdatedAt
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             var items = new List<T>();
 
-            await GetAllDatedDataBeforeAsync<T>(endpoint, async (data, pageEnd) => await Task.Run(() =>
+            await GetAllDatedDataBeforeAsync<T>(endpoint, async (data, pageEnd, cancellationToken) => await Task.Run(() =>
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 items.Add(data);
             }), before, cancellationToken);
+
+            cancellationToken.ThrowIfCancellationRequested();
 
             return items;
         }
@@ -161,10 +175,14 @@ namespace BSSlurper.Core.BeatSaver.API
         /// <returns></returns>
         private static async Task GetAllDatedDataBeforeAsync<T>(string endpoint, DataCallback<T> callback, string? before = null, CancellationToken cancellationToken = default) where T : IUpdatedAt
         {
+            cancellationToken.ThrowIfCancellationRequested();
+
             DateTimeOffset? lastDate = before != null ? DateTime.Parse(before) : null;
 
-            while (!cancellationToken.IsCancellationRequested)
+            while (true)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var data = await GetDatedDataAsync<T>(endpoint, 100, lastDate?.ToUniversalTime().ToString(ApiDateFormat, CultureInfo.InvariantCulture), null, cancellationToken);
 
                 if (data.Docs.Count == 0)
@@ -174,10 +192,7 @@ namespace BSSlurper.Core.BeatSaver.API
 
                 foreach (var item in data.Docs.Select((doc, index) => (doc, index)))
                 {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        break;
-                    }
+                    cancellationToken.ThrowIfCancellationRequested();
 
                     lastDate = item.doc.UpdatedAt;
 
@@ -225,8 +240,10 @@ namespace BSSlurper.Core.BeatSaver.API
                 return playlist;
             }
 
-            while (!cancellationToken.IsCancellationRequested)
+            while (true)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var data = await GetPlaylistDetailsAsync(id, pageNum++, cancellationToken);
 
                 playlist.Maps.AddRange(data.Maps);

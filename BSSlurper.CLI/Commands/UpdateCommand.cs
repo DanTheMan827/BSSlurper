@@ -73,7 +73,7 @@ namespace BSSlurper.CLI.Commands
         /// <param name="uri">The URI of the file to download.</param>
         /// <param name="fileName">The local file path to save the downloaded file.</param>
         /// <param name="maxRetries">The maximum number of retry attempts (default is 3).</param>
-        async Task DownloadAsync(Uri uri, string fileName, int maxRetries = 3)
+        async Task DownloadAsync(Uri uri, string fileName, int maxRetries = 3, CancellationToken cancellationToken = default)
         {
             int retryCount = 0;
             var destinationDirectory = Path.GetDirectoryName(fileName);
@@ -85,6 +85,8 @@ namespace BSSlurper.CLI.Commands
 
             while (retryCount < maxRetries)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 try
                 {
                     if (File.Exists(fileName))
@@ -92,12 +94,23 @@ namespace BSSlurper.CLI.Commands
                         File.Delete(fileName);
                     }
 
-                    using (var client = new WebClient())
+                    using (var httpClient = new HttpClient())
+                    using (var response = await httpClient.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+                    using (var file = File.Create(fileName))
                     {
-                        await client.DownloadFileTaskAsync(uri, fileName);
+                        await response.Content.CopyToAsync(file, cancellationToken);
                         Console.WriteLine($"Downloaded: {uri}");
                         return; // Success, exit the loop
                     }
+                }
+                catch (OperationCanceledException ex)
+                {
+                    if (File.Exists(fileName))
+                    {
+                        File.Delete(fileName);
+                    }
+
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -134,27 +147,54 @@ namespace BSSlurper.CLI.Commands
         /// Downloads all versions of the specified maps.
         /// </summary>
         /// <param name="versions">The map versions to download.</param>
-        async Task DownloadVersionsAsync(params MapVersion[] versions)
+        async Task DownloadVersionsAsync(CancellationToken cancellationToken = default, params MapVersion[] versions)
         {
             foreach (var version in versions)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 var mapPath = Path.Combine(mapsPath, $"{version.Hash}.zip");
                 var previewPath = Path.Combine(previewsPath, $"{version.Hash}.mp3");
                 var coverPath = Path.Combine(coversPath, $"{version.Hash}.jpg");
 
-                if (!File.Exists(mapPath))
+                try
                 {
-                    await DownloadAsync(version.DownloadUrl, mapPath);
-                }
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!File.Exists(mapPath))
+                    {
+                        await DownloadAsync(version.DownloadUrl, mapPath, cancellationToken: cancellationToken);
+                    }
 
-                if (!File.Exists(previewPath))
-                {
-                    await DownloadAsync(version.PreviewUrl, previewPath);
-                }
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!File.Exists(previewPath))
+                    {
+                        await DownloadAsync(version.PreviewUrl, previewPath, cancellationToken: cancellationToken);
+                    }
 
-                if (!File.Exists(coverPath))
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!File.Exists(coverPath))
+                    {
+                        await DownloadAsync(version.CoverUrl, coverPath, cancellationToken: cancellationToken);
+                    }
+                }
+                catch (OperationCanceledException ex)
                 {
-                    await DownloadAsync(version.CoverUrl, coverPath);
+                    if (File.Exists(mapPath))
+                    {
+                        File.Delete(mapPath);
+                    }
+
+                    if (File.Exists(previewPath))
+                    {
+                        File.Delete(previewPath);
+                    }
+
+                    if (File.Exists(coverPath))
+                    {
+                        File.Delete(coverPath);
+                    }
+
+                    throw;
                 }
             }
         }
@@ -164,23 +204,27 @@ namespace BSSlurper.CLI.Commands
         /// </summary>
         /// <param name="playlist">The playlist to process.</param>
         /// <param name="clearChangeTracker">Whether to clear the database change tracker after processing (default is false).</param>
-        async Task ProcessPlaylistAsync(Playlist playlist, bool clearChangeTracker = false)
+        async Task ProcessPlaylistAsync(Playlist playlist, bool clearChangeTracker = false, CancellationToken cancellationToken = default)
         {
-            var page = await ApiClient.GetPlaylistDetailsAsync(playlist);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var page = await ApiClient.GetPlaylistDetailsAsync(playlist, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+
             await db.GetUpdatedPlaylistAsync(page);
 
             if (page?.Playlist?.PlaylistImage != null)
             {
                 var image = page.Playlist.PlaylistImage;
 
-                await DownloadAsync(image, Path.Combine(playlistImagesPath, Path.GetFileName(image.LocalPath)));
+                await DownloadAsync(image, Path.Combine(playlistImagesPath, Path.GetFileName(image.LocalPath)), cancellationToken: cancellationToken);
             }
 
             if (page?.Playlist?.PlaylistImage512 != null)
             {
                 var image = page.Playlist.PlaylistImage512;
 
-                await DownloadAsync(image, Path.Combine(playlist512ImagesPath, Path.GetFileName(image.LocalPath)));
+                await DownloadAsync(image, Path.Combine(playlist512ImagesPath, Path.GetFileName(image.LocalPath)), cancellationToken: cancellationToken);
             }
 
             var newestPlaylistMapDate = page.Maps.Select(m => m.Map.UpdatedAt).OrderDescending().FirstOrDefault();
@@ -188,10 +232,10 @@ namespace BSSlurper.CLI.Commands
 
             if ((page.Maps.Count > 0 && newestDatabaseMapDate == null) || (newestPlaylistMapDate != null && newestDatabaseMapDate != null && newestPlaylistMapDate > newestDatabaseMapDate))
             {
-                await UpdateMapsAsync();
+                await UpdateMapsAsync(cancellationToken);
             }
 
-            await DownloadVersionsAsync(page.Maps.SelectMany(m => m.Map.Versions).ToArray());
+            await DownloadVersionsAsync(cancellationToken, page.Maps.SelectMany(m => m.Map.Versions).ToArray());
             await db.SaveChangesAsync();
 
             if (clearChangeTracker)
@@ -205,10 +249,10 @@ namespace BSSlurper.CLI.Commands
         /// </summary>
         /// <param name="map">The map to process.</param>
         /// <param name="clearChangeTracker">Whether to clear the database change tracker after processing (default is false).</param>
-        async Task ProcessMapAsync(MapDetail map, bool clearChangeTracker = false)
+        async Task ProcessMapAsync(MapDetail map, bool clearChangeTracker = false, CancellationToken cancellationToken = default)
         {
             await db.GetUpdatedMapDetailAsync(map);
-            await DownloadVersionsAsync(map.Versions.ToArray());
+            await DownloadVersionsAsync(cancellationToken, map.Versions.ToArray());
             await db.SaveChangesAsync();
 
             if (clearChangeTracker)
@@ -220,13 +264,15 @@ namespace BSSlurper.CLI.Commands
         /// <summary>
         /// Updates all maps from the BeatSaver API by fetching new and updated maps and processing them.
         /// </summary>
-        async Task UpdateMapsAsync()
+        async Task UpdateMapsAsync(CancellationToken cancellationToken = default)
         {
-            await ApiClient.GetAllMapsBeforeAsync(ProcessMapAsync, fullUpdate ? null : GetOldestMapDate());
+            await ApiClient.GetAllMapsBeforeAsync(ProcessMapAsync, fullUpdate ? null : GetOldestMapDate(), cancellationToken);
 
             while (true)
             {
-                var data = await ApiClient.GetAllMapsAfterAsync(GetNewestMapDate());
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var data = await ApiClient.GetAllMapsAfterAsync(GetNewestMapDate(), cancellationToken);
 
                 if (data.Count == 0)
                 {
@@ -237,7 +283,9 @@ namespace BSSlurper.CLI.Commands
 
                 foreach (var item in data.Select((map, index) => (map, index)))
                 {
-                    await ProcessMapAsync(item.map, item.index == data.Count - 1);
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    await ProcessMapAsync(item.map, item.index == data.Count - 1, cancellationToken);
                 }
             }
         }
@@ -245,13 +293,13 @@ namespace BSSlurper.CLI.Commands
         /// <summary>
         /// Updates all playlists from the BeatSaver API by fetching new and updated playlists and processing them.
         /// </summary>
-        async Task UpdatePlaylistsAsync()
+        async Task UpdatePlaylistsAsync(CancellationToken cancellationToken = default)
         {
-            await ApiClient.GetAllPlaylistsBeforeAsync(ProcessPlaylistAsync, fullUpdate ? null : GetOldestPlaylistDate());
+            await ApiClient.GetAllPlaylistsBeforeAsync(ProcessPlaylistAsync, fullUpdate ? null : GetOldestPlaylistDate(), cancellationToken);
 
             while (true)
             {
-                var data = await ApiClient.GetAllPlaylistsAfterAsync(GetNewestPlaylistDate());
+                var data = await ApiClient.GetAllPlaylistsAfterAsync(GetNewestPlaylistDate(), cancellationToken);
 
                 if (data.Count == 0)
                 {
@@ -262,7 +310,7 @@ namespace BSSlurper.CLI.Commands
 
                 foreach (var item in data.Select((playlist, index) => (playlist, index)))
                 {
-                    await ProcessPlaylistAsync(item.playlist, item.index == data.Count - 1);
+                    await ProcessPlaylistAsync(item.playlist, item.index == data.Count - 1, cancellationToken);
                 }
             }
         }
@@ -270,12 +318,12 @@ namespace BSSlurper.CLI.Commands
         /// <summary>
         /// Executes the update command by updating maps and playlists.
         /// </summary>
-        public async Task Execute()
+        public async Task Execute(CancellationToken cancellationToken = default)
         {
             await db.Database.MigrateAsync();
 
-            await UpdateMapsAsync();
-            await UpdatePlaylistsAsync();
+            await UpdateMapsAsync(cancellationToken);
+            await UpdatePlaylistsAsync(cancellationToken);
         }
 
         /// <summary>
