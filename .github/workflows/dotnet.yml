@@ -101,10 +101,31 @@ jobs:
         $zipPath = "BSSlurper.zip"
         Compress-Archive -Path "publish/Release/*" -DestinationPath $zipPath
 
+    # Delete "latest" tag
+    - name: Delete "latest" tag
+      if: matrix.configuration == 'Release' && github.ref == 'refs/heads/master'
+      continue-on-error: true
+      run: |
+        git push -d origin latest
+
+    # if we had a tag, we should make a release
+    - name: Upload release artifacts
+      if: matrix.configuration == 'Release' && github.ref == 'refs/heads/master'
+      uses: softprops/action-gh-release@v0.1.15
+      with:
+        body: 'This is an automatically generated pre-release based on the latest commit to the master branch'
+        tag_name: 'latest'
+        draft: false
+        prerelease: true
+        generate_release_notes: true
+        files: |
+          ./BSSlurper.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
     # if we had a tag, we should make a release
     - name: Upload release artifacts
       if: startsWith(github.ref, 'refs/tags/') && matrix.configuration == 'Release'
-      id: upload_file_release
       uses: softprops/action-gh-release@v0.1.15
       with:
         tag_name: ${{ github.event.inputs.tag }}
