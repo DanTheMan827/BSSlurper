@@ -12,7 +12,7 @@ namespace BSSlurper.CLI.Commands
     internal class UpdateCommand : IDisposable
     {
         private readonly SlurpedContext db;
-        private readonly bool fullUpdate;
+        private readonly UpdateCommandOptions options;
         private readonly string dataPath;
         private readonly string mapsPath;
         private readonly string avatarsPath;
@@ -28,7 +28,7 @@ namespace BSSlurper.CLI.Commands
         /// <param name="options">Options for the update command, containing paths and other settings.</param>
         public UpdateCommand(UpdateCommandOptions options)
         {
-            fullUpdate = options.FullUpdate;
+            this.options = options;
             dataPath = options.DataPath != null ? Path.GetFullPath(options.DataPath.FullName) : Path.GetFullPath("data");
             mapsPath = Path.Combine(dataPath, "maps");
             avatarsPath = Path.Combine(dataPath, "avatars");
@@ -166,13 +166,13 @@ namespace BSSlurper.CLI.Commands
                     }
 
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!File.Exists(previewPath))
+                    if (!options.SkipPreviews && !File.Exists(previewPath))
                     {
                         await DownloadAsync(version.PreviewUrl, previewPath, cancellationToken: cancellationToken);
                     }
 
                     cancellationToken.ThrowIfCancellationRequested();
-                    if (!File.Exists(coverPath))
+                    if (!options.SkipMapCovers && !File.Exists(coverPath))
                     {
                         await DownloadAsync(version.CoverUrl, coverPath, cancellationToken: cancellationToken);
                     }
@@ -213,14 +213,14 @@ namespace BSSlurper.CLI.Commands
 
             await db.GetUpdatedPlaylistAsync(page);
 
-            if (page?.Playlist?.PlaylistImage != null)
+            if (!options.SkipPlaylistCovers && page?.Playlist?.PlaylistImage != null)
             {
                 var image = page.Playlist.PlaylistImage;
 
                 await DownloadAsync(image, Path.Combine(playlistImagesPath, Path.GetFileName(image.LocalPath)), cancellationToken: cancellationToken);
             }
 
-            if (page?.Playlist?.PlaylistImage512 != null)
+            if (!options.SkipPlaylistCovers && page?.Playlist?.PlaylistImage512 != null)
             {
                 var image = page.Playlist.PlaylistImage512;
 
@@ -266,7 +266,7 @@ namespace BSSlurper.CLI.Commands
         /// </summary>
         async Task UpdateMapsAsync(CancellationToken cancellationToken = default)
         {
-            await ApiClient.GetAllMapsBeforeAsync(ProcessMapAsync, fullUpdate ? null : GetOldestMapDate(), cancellationToken);
+            await ApiClient.GetAllMapsBeforeAsync(ProcessMapAsync, options.FullUpdate ? null : GetOldestMapDate(), cancellationToken);
 
             while (true)
             {
@@ -295,7 +295,7 @@ namespace BSSlurper.CLI.Commands
         /// </summary>
         async Task UpdatePlaylistsAsync(CancellationToken cancellationToken = default)
         {
-            await ApiClient.GetAllPlaylistsBeforeAsync(ProcessPlaylistAsync, fullUpdate ? null : GetOldestPlaylistDate(), cancellationToken);
+            await ApiClient.GetAllPlaylistsBeforeAsync(ProcessPlaylistAsync, options.FullUpdate ? null : GetOldestPlaylistDate(), cancellationToken);
 
             while (true)
             {
@@ -323,7 +323,11 @@ namespace BSSlurper.CLI.Commands
             await db.Database.MigrateAsync();
 
             await UpdateMapsAsync(cancellationToken);
-            await UpdatePlaylistsAsync(cancellationToken);
+
+            if (!options.SkipPlaylists)
+            {
+                await UpdatePlaylistsAsync(cancellationToken);
+            }
         }
 
         /// <summary>
