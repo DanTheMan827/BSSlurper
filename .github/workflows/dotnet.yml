@@ -96,7 +96,7 @@ jobs:
 
     # Create a Zip File only for Release configuration
     - name: Create Zip File
-      if: startsWith(github.ref, 'refs/tags/') && matrix.configuration == 'Release'
+      if: matrix.configuration == 'Release'
       run: |
         $zipPath = "BSSlurper.zip"
         Compress-Archive -Path "publish/Release/*" -DestinationPath $zipPath
